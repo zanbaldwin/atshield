@@ -204,6 +204,27 @@ impl Baseline {
         &self.user_controlled_keys
     }
 
+    /// Record `key` as user-controlled, so a later change signed by it classifies
+    /// as legitimate rather than tamper. Idempotent: returns `true` if `key` was
+    /// newly added, `false` if it was already trusted.
+    pub fn trust_key(&mut self, key: DidKey) -> bool {
+        if self.user_controlled_keys.contains(&key) {
+            return false;
+        }
+        self.user_controlled_keys.push(key);
+        true
+    }
+
+    /// Drop `key` from the user-controlled set, so a later change signed by it is
+    /// treated as tamper again. Idempotent: returns `true` if `key` was removed,
+    /// `false` if it was not trusted. Removes every occurrence (a hand-edited
+    /// baseline may carry duplicates).
+    pub fn untrust_key(&mut self, key: &DidKey) -> bool {
+        let before = self.user_controlled_keys.len();
+        self.user_controlled_keys.retain(|k| k != key);
+        before != self.user_controlled_keys.len()
+    }
+
     /// Audit `chain` against this baseline: the sole tamper verdict.
     ///
     /// Authorisation in did:plc is per operation: each op carries one signature
@@ -719,6 +740,23 @@ mod tests {
         let json = serde_json::to_string(&delta).unwrap();
         assert!(json.contains("\"type\":\"key_order_shift\""));
         assert_eq!(serde_json::from_str::<Delta>(&json).unwrap(), delta);
+    }
+
+    #[test]
+    fn trust_and_untrust_key_are_idempotent() {
+        let (state, _, keys, _) = fixture();
+        let mut baseline = Baseline::new(state, vec![]);
+        let key = DidKey::new(&keys[0]).unwrap();
+
+        // trust: newly added, then a no-op.
+        assert!(baseline.trust_key(key.clone()));
+        assert!(!baseline.trust_key(key.clone()));
+        assert_eq!(baseline.user_controlled_keys(), std::slice::from_ref(&key));
+
+        // untrust: removed, then a no-op.
+        assert!(baseline.untrust_key(&key));
+        assert!(!baseline.untrust_key(&key));
+        assert!(baseline.user_controlled_keys().is_empty());
     }
 
     #[test]

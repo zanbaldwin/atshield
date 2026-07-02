@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
+[package]
+name = "atshield-cli"
+description = "Command-line client for atshield did:plc identity-tampering detection"
+license = "MIT OR Apache-2.0"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "atshield"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anstyle.workspace = true
+anstream.workspace = true
+atshield-core.workspace = true
+clap.workspace = true
+erased-serde.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+zeroize.workspace = true
+ureq.workspace = true
+directories.workspace = true
+c-ares-resolver = { workspace = true, features = ["vendored", "build-cmake"] }
+
+[dev-dependencies]
+# `test-utils` exposes atshield_core::test::{TEST_AUDIT_CHAIN, TEST_DID_PLC} for the
+# offline handle/observe unit tests. Dev-only: kept out of the release binary.
+atshield-core = { workspace = true, features = ["test-utils"] }
