@@ -11,6 +11,7 @@
 use anstyle::{AnsiColor, Color, Effects, Style};
 use atshield_core::DidExt;
 use atshield_core::delta::Delta;
+use std::borrow::Cow;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::io::{self, Write};
 
@@ -34,14 +35,14 @@ pub const MUTED: Style = Style::new().effects(Effects::DIMMED);
 /// `text` wrapped in `style`'s ANSI escapes, rendered lazily into a `write!`.
 /// The escapes are always emitted; [`anstream::AutoStream`] strips them when the
 /// target stream should not be coloured.
-pub fn paint(style: Style, text: &str) -> Painted<'_> {
-    Painted { style, text }
+pub fn paint<'a>(style: Style, text: impl Into<Cow<'a, str>>) -> Painted<'a> {
+    Painted { style, text: text.into() }
 }
 
 /// The [`Display`] adapter returned by [`paint`].
 pub struct Painted<'a> {
     style: Style,
-    text: &'a str,
+    text: Cow<'a, str>,
 }
 impl Display for Painted<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
