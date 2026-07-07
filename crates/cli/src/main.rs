@@ -9,11 +9,12 @@ mod command;
 mod output;
 mod util;
 
-use crate::cli::{BaselineCommand, ChallengeCommand, SignCommand};
+use crate::cli::{BaselineCommand, ChallengeCommand, OpCommand, SignCommand};
 use crate::cli::{Cli, Command};
 use crate::command::baseline::{BaselineCheck, BaselineRecord, BaselineTrustKey, BaselineUntrustKey, BaselineUpdate};
 use crate::command::challenge::{ChallengeNew, ChallengeSign, ChallengeVerify};
 use crate::command::handle::HandleResolution;
+use crate::command::op::{OpBuild, OpEncode, OpSig};
 use crate::output::Emit;
 use clap::Parser;
 use std::borrow::Cow;
@@ -168,6 +169,11 @@ fn dispatch(cli: &Cli) -> Result<Box<dyn Outcome>, CliError> {
                 SignCommand::Raw(args) => Box::new(ChallengeSign::raw(args)?),
                 SignCommand::Payload(args) => Box::new(ChallengeSign::payload(args)?),
             },
+        },
+        Command::Op(args) => match &args.command {
+            OpCommand::Build(args) => Box::new(OpBuild::run(args)?),
+            OpCommand::Encode(args) => Box::new(OpEncode::run(args)?),
+            OpCommand::Sig(args) => Box::new(OpSig::run(args)?),
         },
     })
 }

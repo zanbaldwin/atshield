@@ -4,7 +4,7 @@
 
 use crate::command::handle::BareHandle;
 use atshield_core::crypto::Signature;
-use atshield_core::{DidKey, DidPlc, Endpoint};
+use atshield_core::{Cid, DidKey, DidPlc, Endpoint};
 use clap::{Args, ColorChoice, Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -42,6 +42,8 @@ pub enum Command {
     Handle(HandleArgs),
     /// Proof-of-possession: mint, sign, or verify a challenge nonce (offline)
     Challenge(ChallengeArgs),
+    /// Recovery-operation helpers (never touches a private key)
+    Op(OpArgs),
 }
 
 /// Network options shared by the commands that contact plc.directory.
@@ -337,4 +339,68 @@ pub struct ChallengeVerifyArgs {
     /// The signature to verify (base64url or DER)
     #[arg(short = 's', long, value_name = "SIGNATURE")]
     pub signature: Signature,
+}
+
+#[derive(Args)]
+pub struct OpArgs {
+    #[command(subcommand)]
+    pub command: OpCommand,
+}
+
+/// Composable, key-free helpers for a goat-free recovery: `build` an editable operation, `encode` it to
+/// the exact bytes to sign, and normalise the resulting `sig`. The private key crosses only your signer
+/// (e.g. openssl), never atshield; every output is deterministic and independently verifiable.
+#[derive(Subcommand)]
+pub enum OpCommand {
+    /// Build an editable unsigned operation, forked from a last-known-good CID (fetches the audit log)
+    Build(OpBuildArgs),
+    /// Canonicalise an operation JSON to the exact DAG-CBOR bytes that must be signed (offline)
+    Encode(OpEncodeArgs),
+    /// Normalise an openssl DER signature to the low-S base64url `sig` a PLC operation carries (offline)
+    Sig(OpSigArgs),
+}
+
+#[derive(Args)]
+pub struct OpBuildArgs {
+    /// The `did:plc:` identity to build the operation for
+    #[arg(env = "ATSHIELD_DID", value_name = "DID")]
+    pub did: DidPlc,
+    /// Fork from this specific last-known-good operation CID (highest-priority source; baked in as `prev`)
+    #[arg(long = "prev", value_name = "CID")]
+    pub prev: Option<Cid>,
+    /// Build a full-restore op from this baseline JSON. Without `--prev`, a baseline is preferred over the
+    /// live head; if this is omitted the default `<baseline_dir>/baseline-<suffix>.json` is used when present.
+    #[arg(
+        short = 'b',
+        long = "baseline",
+        env = "ATSHIELD_BASELINE",
+        value_name = "BASELINE",
+        conflicts_with = "prev"
+    )]
+    pub baseline: Option<PathBuf>,
+    /// Read the baseline from stdin instead of a file; the explicit spelling is `--baseline -`.
+    #[arg(long, conflicts_with_all = ["baseline", "prev"])]
+    pub stdin: bool,
+    #[command(flatten)]
+    pub net: NetArgs,
+}
+
+#[derive(Args)]
+pub struct OpEncodeArgs {
+    /// The operation JSON to encode (`-` reads it from stdin)
+    #[arg(value_name = "FILE", default_value = "-")]
+    pub file: String,
+    /// Emit hex-encoded string instead of raw DAG-CBOR bytes; for debugging, printing, and piping to `xxd`.
+    #[arg(long)]
+    pub hex: bool,
+}
+
+#[derive(Args)]
+pub struct OpSigArgs {
+    /// The DER/high-S signature from your signer (`-` reads stdin; accepts raw DER bytes or base64)
+    #[arg(value_name = "FILE", default_value = "-")]
+    pub file: String,
+    /// Your public rotation `did:key` — supplies the curve for low-S normalisation
+    #[arg(short = 'k', long = "key", value_name = "DID_KEY")]
+    pub key: DidKey,
 }

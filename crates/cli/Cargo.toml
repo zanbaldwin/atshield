@@ -34,3 +34,4 @@ c-ares-resolver = { workspace = true, features = ["vendored", "build-cmake"] }
 # `test-utils` exposes atshield_core::test::{TEST_AUDIT_CHAIN, TEST_DID_PLC} for the
 # offline handle/observe unit tests. Dev-only: kept out of the release binary.
 atshield-core = { workspace = true, features = ["test-utils"] }
+base64.workspace = true
