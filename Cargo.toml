@@ -12,9 +12,11 @@ rust-version = "1.96"
 [workspace.dependencies]
 anstyle = "^1"
 anstream = "^1"
+async-trait = "=0.1.89"
 atrium-crypto = "=0.1.3"
 atshield-core = { path = "crates/core" }
 base64 = "=0.22.1"
+bytes = "1"
 c-ares-resolver = { version = "^11.0.0", default-features = false }
 cid = "=0.11.3"
 clap = { version = "^4.5", features = ["derive", "env"] }
@@ -22,16 +24,24 @@ directories = "^6"
 ecdsa = "=0.16.9"
 erased-serde = "=0.4.10"
 getrandom = "=0.2.17"
+http = "^1.4"
 k256 = "=0.13.3"
 hex = "=0.4.3"
 jiff = "=0.2.29"
 multibase = "=0.9.2"
 multihash-codetable = "=0.2.2"
+pingora = { version = "=0.8.1", default-features = false, features = [
+    "proxy",
+    "rustls",
+] }
+pingora-limits = "=0.8.1"
 p256 = "=0.13.2"
 serde = { version = "^1", features = ["derive"] }
 serde_ipld_dagcbor = "=0.6.4"
 serde_json = "^1"
 thiserror = "^2"
+tracing = "=0.1.41"
+tracing-subscriber = { version = "=0.3.20", features = ["env-filter"] }
 ureq = { version = "=2.12.1", default-features = false, features = ["tls"] }
 zeroize = "^1"
 

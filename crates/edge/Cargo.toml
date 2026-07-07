@@ -1,0 +1,23 @@
+[package]
+name = "fakesky-edge"
+description = "Edge proxy for Fakesky: PLC directory / app sandbox"
+license = "LicenseRef-Proprietary"
+publish = false
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+bytes.workspace = true
+clap.workspace = true
+http.workspace = true
+pingora.workspace = true
+pingora-limits.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true
