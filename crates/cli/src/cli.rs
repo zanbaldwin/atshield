@@ -2,7 +2,7 @@
 //! The clap command tree: the binary's public contract. Business logic lives in
 //! `main.rs`'s dispatch; this file only declares the surface.
 
-use crate::handle::BareHandle;
+use crate::command::handle::BareHandle;
 use atshield_core::crypto::Signature;
 use atshield_core::{DidKey, DidPlc, Endpoint};
 use clap::{Args, ColorChoice, Parser, Subcommand};

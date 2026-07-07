@@ -4,17 +4,16 @@
 // to document.
 #![allow(clippy::print_stdout, clippy::print_stderr, missing_docs)]
 
-mod baseline;
-mod challenge;
 mod cli;
-mod handle;
+mod command;
 mod output;
 mod util;
 
-use crate::baseline::{BaselineCheck, BaselineRecord, BaselineTrustKey, BaselineUntrustKey, BaselineUpdate};
-use crate::challenge::{ChallengeNew, ChallengeSign, ChallengeVerify};
 use crate::cli::{BaselineCommand, ChallengeCommand, SignCommand};
 use crate::cli::{Cli, Command};
+use crate::command::baseline::{BaselineCheck, BaselineRecord, BaselineTrustKey, BaselineUntrustKey, BaselineUpdate};
+use crate::command::challenge::{ChallengeNew, ChallengeSign, ChallengeVerify};
+use crate::command::handle::HandleResolution;
 use crate::output::Emit;
 use clap::Parser;
 use std::borrow::Cow;
@@ -161,7 +160,7 @@ fn dispatch(cli: &Cli) -> Result<Box<dyn Outcome>, CliError> {
             BaselineCommand::UntrustKey(args) => Box::new(BaselineUntrustKey::run(args)?),
         },
         Command::Check(args) => Box::new(BaselineCheck::run(args)?),
-        Command::Handle(args) => Box::new(handle::HandleResolution::run(args)?),
+        Command::Handle(args) => Box::new(HandleResolution::run(args)?),
         Command::Challenge(args) => match &args.command {
             ChallengeCommand::New => Box::new(ChallengeNew::new()),
             ChallengeCommand::Verify(args) => Box::new(ChallengeVerify::new(args)?),
