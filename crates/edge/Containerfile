@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: LicenseRef-Proprietary
+FROM 'rust:1-alpine' AS build
+RUN apk add --no-cache --virtual '.build-deps' \
+    'cmake' \
+    'gcc' \
+    'make' \
+    'musl-dev'
+WORKDIR '/work'
+COPY . .
+RUN --mount=type='cache,target=/usr/local/cargo/registry' \
+    --mount=type='cache,target=/usr/local/rustup' \
+    --mount=type='cache,id=edge,target=/work/target' \
+    cargo deploy -p 'fakesky-edge' \
+ && cp '/work/target/x86_64-unknown-linux-musl/deploy/fakesky-edge' '/usr/local/bin/fakesky-edge'
+
+FROM 'alpine:3.24'
+WORKDIR '/app'
+COPY --from='build' \
+    '/usr/local/bin/fakesky-edge' \
+    '/usr/local/bin/fakesky-edge'
+# Switch to user `nobody` (conventionally ID `(2^16)-1`) to harden
+# container-escape attempts. Recommended to use Docker secrets for
+# `EDGE_TLS_KEY` instead of mounting files.
+USER 65534:65534
+EXPOSE 2580
+ENTRYPOINT ["/usr/local/bin/fakesky-edge"]

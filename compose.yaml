@@ -1,0 +1,82 @@
+name: 'fakesky'
+services:
+
+  postgres:
+    image: 'postgres:18-alpine'
+    environment:
+      POSTGRES_USER: 'plc'
+      POSTGRES_PASSWORD: 'password'
+      POSTGRES_DB: 'plc'
+    volumes:
+      - type: 'volume'
+        source: 'database'
+        # As of Postgres 18+ the recommendation is to mount `/var/lib/postgres`
+        # as the data directory will now be named according to the major version
+        # to assist in upgrade migrations.
+        target: '/var/lib/postgresql'
+        read_only: false
+    networks: ['private']
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U plc -d plc"]
+      interval: '5s'
+      timeout: '3s'
+      retries: 10
+
+  plc:
+    build:
+      # Pinned to the Git commit that is running in production, see https://plc.directory/_health
+      context: https://github.com/did-method-plc/did-method-plc.git#f7227fae7b0f4f94e31ad37bc660f894f322c946
+      dockerfile: 'packages/server/Dockerfile'
+    environment:
+      PORT: '2582'
+      DB_CREDS_JSON: '{"username":"plc","password":"password","host":"postgres","port":"5432","database":"plc"}'
+      DB_MIGRATE_CREDS_JSON: '{"username":"plc","password":"password","host":"postgres","port":"5432","database":"plc"}'
+      ENABLE_MIGRATIONS: 'true'
+      # Admin is blocked by edge proxy.
+      ADMIN_SECRET: 'password'
+    depends_on:
+      postgres:
+        condition: 'service_healthy'
+    networks: ['private']
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- 'http://127.0.0.1:2582/_health' >'/dev/null' 2>&1 || exit 1"]
+      interval: '10s'
+      timeout: '3s'
+      retries: 6
+
+  edge:
+    build:
+      context: '.'
+      dockerfile: 'crates/edge/Containerfile'
+    environment:
+      EDGE_LISTEN: '0.0.0.0:2580'
+      EDGE_PLC_UPSTREAM: 'plc:2582'
+      EDGE_RATE_LIMIT_PER_MIN: '60'
+      EDGE_SHUTDOWN_TIMEOUT: '5'
+    # Must exceed EDGE_SHUTDOWN_GRACE + EDGE_SHUTDOWN_TIMEOUT, else the
+    # runtime `SIGKILL`s mid-drain.
+    stop_grace_period: '12s'
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- 'http://127.0.0.1:2580/healthz' >'/dev/null' 2>&1 || exit 1"]
+      interval: '10s'
+      timeout: '3s'
+      retries: 6
+    depends_on:
+      plc:
+        condition: 'service_healthy'
+    networks: ['private', 'public']
+    ports:
+      - target: 2580
+        published: 2580
+        host_ip: '0.0.0.0'
+        mode: 'tcp'
+
+networks:
+  private:
+    internal: true
+  public:
+    name: 'fakesky'
+    attachable: true
+
+volumes:
+  database: {}
