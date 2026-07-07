@@ -66,11 +66,11 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), CliError> {
     Ok(())
 }
 
-/// `<config_dir>/atshield/baseline-<plc-suffix>.json` (XDG on Linux). The 24-char
+/// `<data_dir>/atshield/baseline-<plc-suffix>.json` (XDG on Linux). The 24-char
 /// base32 suffix is a filesystem-safe path component by construction.
 pub(crate) fn default_path(did: &DidPlc) -> Result<PathBuf, CliError> {
     let dirs = ProjectDirs::from("", "", "atshield")
         .ok_or_else(|| CliError::Usage("could not determine a config directory; pass an explicit path".into()))?;
     let suffix = did.as_str().strip_prefix("did:plc:").unwrap_or_else(|| did.as_str());
-    Ok(dirs.config_dir().join(format!("baseline-{suffix}.json")))
+    Ok(dirs.data_dir().join(format!("baseline-{suffix}.json")))
 }
