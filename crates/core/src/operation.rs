@@ -407,6 +407,17 @@ impl Operation<Unsigned> {
         Ok(Self::new(value, ()))
     }
 
+    /// The exact DAG-CBOR bytes this operation is hashed and signed over; what
+    /// an out-of-band signer (e.g. `openssl dgst -sha256 -sign`) must sign to
+    /// produce a valid `sig`. Byte-identical to what [`sign`](Self::sign) signs
+    /// and what `verify_chain` recomputes.
+    ///
+    /// # Errors
+    /// - [`OperationError`] if the value cannot be DAG-CBOR encoded.
+    pub fn signing_input(&self) -> Result<Vec<u8>, OperationError> {
+        encoding::signing_input(&self.value)
+    }
+
     /// Attach `sig` to this operation, unverified against any key, producing a
     /// [`Signed`] operation.
     #[must_use]
@@ -426,7 +437,7 @@ impl Operation<Unsigned> {
     /// - [`SignError::Encode`] if the signing input cannot be DAG-CBOR encoded.
     /// - [`SignError::Sign`] if the ECDSA signing operation fails.
     pub fn sign(self, key: &PrivateKey) -> Result<Operation<Checked>, SignError> {
-        let input = encoding::signing_input(&self.value).map_err(|e| SignError::Encode(e.to_string()))?;
+        let input = self.signing_input().map_err(|e| SignError::Encode(e.to_string()))?;
         let sig = key.sign(&input)?;
         let witness = key.did_key();
         let mut value = self.value;
