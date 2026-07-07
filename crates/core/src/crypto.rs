@@ -2,9 +2,10 @@
 //! Crypto value objects: public keys ([`PublicKey`]), signatures ([`Signature`]),
 //! and private keys ([`PrivateKey`], [`KeyPair`]).
 //!
-//! No key custody: a [`PrivateKey`] is read once (via [`PrivateKey::from_multikey`]),
-//! used in-memory, and dropped, never stored or transmitted. The detector and
-//! the server hold no private keys; they only verify, via [`PublicKey::verify`].
+//! Minimal key custody. A [`PrivateKey`] is parsed from a multikey
+//! ([`PrivateKey::from_multikey`]), used in-memory, and dropped; once parsed it is
+//! export-proof by construction. Only a freshly generated key ([`GeneratedKey`])
+//! can be persisted as a multikey ([`GeneratedKey::to_multikey`]).
 //!
 //! [`Signature`] is a curveless 64-byte P1363-compact holder. The curve is metadata
 //! of the verifying key (consulted only by the ECDSA check, which always has a key),
@@ -18,10 +19,10 @@
 //! half of the key.
 //!
 //! ```
-//! use atshield_core::crypto::{KeyPair, Nonce, Signature};
+//! use atshield_core::crypto::{KeyPair, Nonce, PrivateKey, Signature};
 //! use std::str::FromStr;
 //!
-//! let keys = KeyPair::generate();
+//! let keys = KeyPair::from_private(PrivateKey::generate().into_inner());
 //! let nonce = Nonce::generate();
 //! let sig = keys.sign(nonce.as_bytes()).unwrap();
 //!
@@ -43,7 +44,8 @@ use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use ecdsa::signature::Signer;
 use serde::{Deserialize, Serialize};
-use std::fmt;
+use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::ops::Deref;
 use std::str::FromStr;
 use zeroize::Zeroizing;
 
@@ -107,8 +109,8 @@ impl Nonce {
         Ok(Nonce(s.to_owned()))
     }
 }
-impl fmt::Display for Nonce {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for Nonce {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         f.write_str(&self.0)
     }
 }
@@ -282,9 +284,12 @@ enum KeyInner {
 /// operation. Parsed from the multibase multikey `goat key generate` emits.
 ///
 /// Opaque by design: the inner `SigningKey` cannot be extracted by downstream
-/// code (the variants are private), and the type has no `Debug`. `k256`/`p256`
-/// `SigningKey` zeroise their scalar on drop (RustCrypto `zeroize` drop glue),
-/// so the key material is wiped when the `PrivateKey` is dropped.
+/// code (the variants are private) and the type has no `Debug` or `Display`, so
+/// a key parsed from an external secret store can never be re-exported or
+/// accidentally logged. Only a freshly minted [`GeneratedKey`] can leave the
+/// process (via [`GeneratedKey::to_multikey`]). `k256`/`p256` `SigningKey`
+/// zeroise their scalar on drop (RustCrypto `zeroize` drop glue), so the key
+/// material is wiped when the `PrivateKey` is dropped.
 pub struct PrivateKey(KeyInner);
 impl PrivateKey {
     /// Parse the self-describing multibase multikey emitted by `goat key generate`
@@ -319,19 +324,23 @@ impl PrivateKey {
 
     /// Generate a fresh random secp256k1 rotation key. A test/sandbox helper for
     /// minting keypairs (the detector never generates keys); pair it with its
-    /// `did:key` via [`KeyPair::generate`]. Uses the OS CSPRNG.
+    /// `did:key` via [`KeyPair::from_private`]. Uses the OS CSPRNG.
+    ///
+    /// Returns a [`GeneratedKey`]: the only key form that can be persisted
+    /// ([`GeneratedKey::to_multikey`]). Convert it into an export-proof
+    /// [`PrivateKey`] with [`GeneratedKey::into_inner`].
     ///
     /// # Panics
     /// Panics if the OS CSPRNG is unavailable (fail-closed, as in
     /// [`Nonce::generate`](crate::crypto::Nonce::generate)).
     #[must_use]
-    pub fn generate() -> Self {
+    pub fn generate() -> GeneratedKey {
         loop {
             // Reject the negligibly-rare out-of-range/zero scalar by re-drawing.
             let mut scalar = Zeroizing::new([0u8; 32]);
             getrandom::getrandom(scalar.as_mut_slice()).expect("OS CSPRNG unavailable");
             if let Ok(sk) = k256::ecdsa::SigningKey::from_slice(scalar.as_slice()) {
-                return PrivateKey(KeyInner::Secp256k1(sk));
+                return GeneratedKey(PrivateKey(KeyInner::Secp256k1(sk)));
             }
         }
     }
@@ -380,23 +389,74 @@ impl PrivateKey {
     }
 }
 
+/// A private key freshly generated in-process by [`PrivateKey::generate`]: the
+/// only key form that can be exported ([`to_multikey`](Self::to_multikey)),
+/// because its material never came from an external secret store. A key parsed
+/// with [`PrivateKey::from_multikey`] can never become one, so downstream code
+/// holding a `PrivateKey` cannot extract it.
+///
+/// Derefs to [`PrivateKey`], so it signs and derives its `did:key` directly;
+/// convert with [`into_inner`](Self::into_inner) once persisted.
+///
+/// The field is private and [`PrivateKey::generate`] is the only constructor,
+/// so an imported key cannot be wrapped to exfiltrate it:
+///
+/// ```compile_fail,E0423
+/// use atshield_core::crypto::{GeneratedKey, PrivateKey};
+///
+/// let key = PrivateKey::from_multikey("zDummy").unwrap();
+/// let wrapped = GeneratedKey(key); // the constructor is not visible
+/// ```
+pub struct GeneratedKey(PrivateKey);
+impl GeneratedKey {
+    /// Export as the multikey that [`PrivateKey::from_multikey`] round-trips;
+    /// the same form `goat key generate` emits (`z…` of `[priv-multicodec] || scalar`).
+    ///
+    /// The one sanctioned way to *persist* a generated key (e.g. a sandbox
+    /// operator key). The returned string holds the raw private scalar and is
+    /// wiped on drop.
+    #[must_use]
+    pub fn to_multikey(&self) -> Zeroizing<String> {
+        // The assembled buffer holds the raw private scalar; wipe it on drop.
+        let mut buf = Zeroizing::new(Vec::with_capacity(2 + 32));
+        match &self.0.0 {
+            KeyInner::P256(sk) => {
+                buf.extend_from_slice(&MULTICODEC_P256_PRIV);
+                buf.extend_from_slice(sk.to_bytes().as_slice());
+            },
+            KeyInner::Secp256k1(sk) => {
+                buf.extend_from_slice(&MULTICODEC_SECP256K1_PRIV);
+                buf.extend_from_slice(sk.to_bytes().as_slice());
+            },
+        }
+        Zeroizing::new(multibase::encode(multibase::Base::Base58Btc, buf.as_slice()))
+    }
+
+    /// De-privilege into an export-proof [`PrivateKey`] (lock inner material
+    /// from being exported).
+    #[must_use]
+    pub fn into_inner(self) -> PrivateKey {
+        self.0
+    }
+}
+impl Deref for GeneratedKey {
+    type Target = PrivateKey;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl From<GeneratedKey> for PrivateKey {
+    fn from(key: GeneratedKey) -> Self {
+        key.0
+    }
+}
+
 /// A freshly generated rotation keypair: a [`PrivateKey`] and the validated
 /// [`PublicKey`]/[`DidKey`](crate::did::Key) it derives. A test/sandbox
 /// convenience over [`PrivateKey::generate`] (e.g. minting distinct keys for
 /// fixtures); the detector never generates keys.
 pub struct KeyPair(pub PrivateKey, pub PublicKey);
 impl KeyPair {
-    /// Generate a fresh secp256k1 keypair (private key + its public `did:key`).
-    ///
-    /// # Panics
-    /// Panics if the OS CSPRNG is unavailable (via [`PrivateKey::generate`]).
-    #[must_use]
-    pub fn generate() -> Self {
-        let private = PrivateKey::generate();
-        let public = private.did_key();
-        KeyPair(private, public)
-    }
-
     /// Build a [`KeyPair`] from an existing [`PrivateKey`], deriving its [`PublicKey`].
     #[must_use]
     pub fn from_private(key: PrivateKey) -> Self {
@@ -539,6 +599,17 @@ mod tests {
         assert_eq!(Signature::from_der(&der).unwrap(), sig);
         assert_eq!(Signature::from_str(&sig.to_base64url()).unwrap(), sig); // compact b64url
         assert_eq!(Signature::from_str(&sig.to_der()).unwrap(), sig); // standard-b64 DER
+    }
+
+    #[test]
+    fn to_multikey_round_trips_with_from_multikey() {
+        let key = PrivateKey::generate();
+        let multikey = key.to_multikey();
+        assert!(multikey.starts_with('z')); // base58btc multibase
+        let reparsed = PrivateKey::from_multikey(&multikey).expect("re-imports");
+        // Same identity. (`reparsed.to_multikey()` would not compile: an imported
+        // `PrivateKey` is export-proof; only a `GeneratedKey` can be persisted.)
+        assert_eq!(key.did_key(), reparsed.did_key());
     }
 
     #[test]

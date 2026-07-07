@@ -918,9 +918,9 @@ mod tests {
         // op B (user signer) makes a benign change and becomes head. The old
         // net-diff+head-signer classify laundered A onto B's signature; per-op
         // attribution pins the key-add to A.
-        let user = KeyPair::generate();
-        let other = KeyPair::generate(); // on-chain rotation key the user does NOT control
-        let attacker = KeyPair::generate(); // the key op A inserts
+        let user = KeyPair::from_private(PrivateKey::generate().into_inner());
+        let other = KeyPair::from_private(PrivateKey::generate().into_inner()); // on-chain rotation key the user does NOT control
+        let attacker = KeyPair::from_private(PrivateKey::generate().into_inner()); // the key op A inserts
         let g_rot = [user.1.as_str(), other.1.as_str()];
         let attacked_rot = [attacker.1.as_str(), user.1.as_str(), other.1.as_str()];
 
@@ -960,8 +960,8 @@ mod tests {
         // and a later non-user op reverts it, linearly. Net == baseline, so the
         // live verdict is Clean, but the (since-reverted) hijack still surfaces
         // as a mitigated incident.
-        let user = KeyPair::generate();
-        let other = KeyPair::generate();
+        let user = KeyPair::from_private(PrivateKey::generate().into_inner());
+        let other = KeyPair::from_private(PrivateKey::generate().into_inner());
         let rot = [user.1.as_str(), other.1.as_str()];
 
         let (g, g_cid) = sign_op(op(None, &rot, "at://alice.example", "https://pds.one"), &user.0);
@@ -995,8 +995,8 @@ mod tests {
         // higher-authority user op forking from the same parent). The directory
         // nullifies the attacker branch, so the live state is Clean, but the
         // nullified attack still surfaces under `mitigated`.
-        let user = KeyPair::generate();
-        let other = KeyPair::generate();
+        let user = KeyPair::from_private(PrivateKey::generate().into_inner());
+        let other = KeyPair::from_private(PrivateKey::generate().into_inner());
         let rot = [user.1.as_str(), other.1.as_str()]; // user at index 0 = higher authority
 
         let (g, g_cid) = sign_op(op(None, &rot, "at://alice.example", "https://pds.one"), &user.0);
@@ -1056,7 +1056,7 @@ mod tests {
         // A "poison op": sig-valid (so it enters the chain; `add` only checks
         // rotation keys) but its `services` is malformed, so `project` fails.
         // As an intermediate op it must surface as Projection, never be skipped.
-        let user = KeyPair::generate();
+        let user = KeyPair::from_private(PrivateKey::generate().into_inner());
         let rot = [user.1.as_str()];
         let (g, g_cid) = sign_op(op(None, &rot, "at://alice.example", "https://pds.one"), &user.0);
         // op1: malformed `services` (no endpoint), verifies but won't project.
@@ -1084,9 +1084,9 @@ mod tests {
         // front of `user`), with no op directly shifting `user`, so no on-path
         // setter exists. Even though every op is user-signed, an unattributable
         // net change must fail closed to Tamper, never be blessed as legitimate.
-        let user = KeyPair::generate();
-        let a = KeyPair::generate();
-        let b = KeyPair::generate();
+        let user = KeyPair::from_private(PrivateKey::generate().into_inner());
+        let a = KeyPair::from_private(PrivateKey::generate().into_inner());
+        let b = KeyPair::from_private(PrivateKey::generate().into_inner());
         let full = [user.1.as_str(), a.1.as_str(), b.1.as_str()];
         let without_a = [user.1.as_str(), b.1.as_str()];
         let a_in_front = [a.1.as_str(), user.1.as_str(), b.1.as_str()];
