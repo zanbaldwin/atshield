@@ -6,10 +6,10 @@
 //! Legitimate rather than Tamper. The baseline must already exist as `trust-key`
 //! fetches no chain, so it cannot create one.
 
-use super::Source;
 use crate::cli::BaselineKeyArgs;
 use crate::output::{LABEL, MUTED, WARNING, paint};
-use crate::{CliError, Outcome, util};
+use crate::util::{self, InputSource};
+use crate::{CliError, Outcome};
 use atshield_core::delta::Baseline;
 use atshield_core::{DidExt, DidKey};
 use serde::Serialize;
@@ -51,10 +51,10 @@ impl BaselineTrustKey {
         let off_chain = !baseline.state().rotation_keys().contains(&args.key);
         let already_trusted = !baseline.trust_key(args.key.clone());
         let saved_to = match source {
-            Source::Stdin => None,
+            InputSource::Stdin => None,
             // A no-op (already trusted) leaves the file untouched.
-            Source::File(_) if already_trusted => None,
-            Source::File(path) => {
+            InputSource::File(_) if already_trusted => None,
+            InputSource::File(path) => {
                 let bytes = serde_json::to_vec_pretty(&baseline)
                     .map_err(|e| CliError::Software(format!("serialise: {e}").into()))?;
                 util::write_atomic(&path, &bytes)?;

@@ -5,10 +5,10 @@
 //! (idempotent), and writes it back. A later change signed by that key then
 //! classifies as potential Tamper again rather than Legitimate.
 
-use super::Source;
 use crate::cli::BaselineKeyArgs;
 use crate::output::{LABEL, MUTED, paint};
-use crate::{CliError, Outcome, util};
+use crate::util::{self, InputSource};
+use crate::{CliError, Outcome};
 use atshield_core::delta::Baseline;
 use atshield_core::{DidExt, DidKey};
 use serde::Serialize;
@@ -46,10 +46,10 @@ impl BaselineUntrustKey {
         }
         let was_trusted = baseline.untrust_key(&args.key);
         let saved_to = match source {
-            Source::Stdin => None,
+            InputSource::Stdin => None,
             // A no-op (the key was not trusted) leaves the file untouched.
-            Source::File(_) if !was_trusted => None,
-            Source::File(path) => {
+            InputSource::File(_) if !was_trusted => None,
+            InputSource::File(path) => {
                 let bytes = serde_json::to_vec_pretty(&baseline)
                     .map_err(|e| CliError::Software(format!("serialise: {e}").into()))?;
                 util::write_atomic(&path, &bytes)?;

@@ -1,9 +1,10 @@
 use crate::CliError;
 use atshield_core::audit::{AuditLogEntry, VerifiedAuditChain};
+use atshield_core::delta::Baseline;
 use atshield_core::operation::Signed;
 use atshield_core::{DidExt, DidPlc, Endpoint};
 use directories::ProjectDirs;
-use std::io::{Read, Write};
+use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use ureq::Agent;
 
@@ -73,4 +74,43 @@ pub(crate) fn default_path(did: &DidPlc) -> Result<PathBuf, CliError> {
         .ok_or_else(|| CliError::Usage("could not determine a config directory; pass an explicit path".into()))?;
     let suffix = did.as_str().strip_prefix("did:plc:").unwrap_or_else(|| did.as_str());
     Ok(dirs.data_dir().join(format!("baseline-{suffix}.json")))
+}
+
+/// Where the baseline was loaded from = the same place it is written back to
+/// (`Stdin` is emitted as JSON, not persisted).
+pub(crate) enum InputSource {
+    Stdin,
+    File(PathBuf),
+}
+/// Load an existing baseline from stdin (`stream`, or a `-` path) or a file (`file` /
+/// the default path for `did`). A missing file is a usage error pointing at `baseline
+/// record`. Shared by every `baseline` subcommand that reads a baseline back in.
+pub(crate) fn load_baseline(
+    stream: bool,
+    file: Option<&Path>,
+    did: &DidPlc,
+) -> Result<(Baseline, InputSource), CliError> {
+    if stream || is_stdio(file) {
+        let mut buf = Vec::new();
+        std::io::stdin().take(MAX_BODY_BYTES).read_to_end(&mut buf)?;
+        if buf.is_empty() {
+            return Err(CliError::Data("no baseline on stdin".into()));
+        }
+        let baseline = serde_json::from_slice(&buf)
+            .map_err(|e| CliError::Data(format!("stdin is not a valid baseline: {e}").into()))?;
+        return Ok((baseline, InputSource::Stdin));
+    }
+    let path = match file {
+        Some(path) => path.to_path_buf(),
+        None => default_path(did)?,
+    };
+    let bytes = std::fs::read(&path).map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => {
+            CliError::Usage(format!("no baseline at {}; run `atshield baseline record` first", path.display()).into())
+        },
+        _ => CliError::Io(e),
+    })?;
+    let baseline = serde_json::from_slice(&bytes)
+        .map_err(|e| CliError::Data(format!("baseline at {} is not valid: {e}", path.display()).into()))?;
+    Ok((baseline, InputSource::File(path)))
 }

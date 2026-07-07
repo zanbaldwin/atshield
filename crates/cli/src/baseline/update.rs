@@ -6,10 +6,10 @@
 //! is required for any disk write; without it the command is a dry-run that shows
 //! the structural diff of what would change.
 
-use super::Source;
 use crate::cli::BaselineUpdateArgs;
 use crate::output::{DANGER, LABEL, MUTED, WARNING, describe_delta, paint};
-use crate::{CliError, Outcome, util};
+use crate::util::{self, InputSource};
+use crate::{CliError, Outcome};
 use atshield_core::audit::VerifiedAuditChain;
 use atshield_core::delta::{Baseline, Delta};
 use atshield_core::error::ResolveError;
@@ -74,8 +74,8 @@ impl BaselineUpdate {
             Self::build(&chain, &old, old.user_controlled_keys().to_vec())?;
 
         let disposition = match source {
-            Source::Stdin => Disposition::Stdout,
-            Source::File(path) => {
+            InputSource::Stdin => Disposition::Stdout,
+            InputSource::File(path) => {
                 if old.state() == baseline.state() {
                     Disposition::UpToDate
                 } else if args.shared.force {
