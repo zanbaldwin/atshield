@@ -31,6 +31,7 @@ use crate::cid::Cid;
 use crate::crypto::{PrivateKey, PublicKey, Signature};
 use crate::encoding;
 use crate::error::{OperationError, SignError, VerifyError};
+use crate::resolver::ResolvedState;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -465,6 +466,22 @@ impl<'de> Deserialize<'de> for Operation<Unsigned> {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = Value::deserialize(deserializer)?;
         Self::from_value(value).map_err(serde::de::Error::custom)
+    }
+}
+/// Reconstruct an unsigned `plc_operation` from a resolved state: `prev` is the
+/// state's CID, the document fields are carried over. Edit the result into the
+/// operation to submit (e.g. drop a compromised key), then sign it.
+impl From<&ResolvedState> for Operation<Unsigned> {
+    fn from(state: &ResolvedState) -> Self {
+        let value = serde_json::json!({
+            "type": "plc_operation",
+            "prev": state.cid().as_str(),
+            "rotationKeys": state.rotation_keys(),
+            "verificationMethods": state.verification_methods(),
+            "alsoKnownAs": state.also_known_as(),
+            "services": state.services(),
+        });
+        Self::new(value, ())
     }
 }
 
