@@ -178,14 +178,14 @@ impl Plc {
         if body.is_empty() {
             return Err(DidError::Invalid(Self::KIND, format!("empty identifier body in `{s}`")));
         }
-        if !body.bytes().all(|b| matches!(b, b'a'..=b'z' | b'2'..=b'7')) {
-            return Err(DidError::Invalid(Self::KIND, format!("body must be base32 lowercase [a-z2-7], got `{body}`")));
-        }
         if body.len() != DID_PLC_LEN {
             return Err(DidError::Invalid(
                 Self::KIND,
                 format!("body must be exactly {DID_PLC_LEN} characters, got {} in `{s}`", body.len()),
             ));
+        }
+        if !body.bytes().all(|b| matches!(b, b'a'..=b'z' | b'2'..=b'7')) {
+            return Err(DidError::Invalid(Self::KIND, format!("body must be base32 lowercase [a-z2-7], got `{body}`")));
         }
         Ok(Self(s))
     }
