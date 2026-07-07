@@ -120,11 +120,17 @@ pub enum EndpointError {
 /// to its current [`ResolvedState`](crate::resolver::ResolvedState).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ResolveError {
-    /// The chain has no active operation to resolve: its canonical head is a
-    /// `plc_tombstone` (the identity was deactivated) or every operation is
-    /// nullified. Either way there is no current DID-document state, and the
-    /// directory reports the DID as "not available".
-    #[error("chain has no active operation (tombstoned or wholly nullified)")]
+    /// The head operation is a `plc_tombstone`: the identity was deactivated.
+    /// There is no current DID-document state, but (unlike a wholly-nullified
+    /// chain) the deactivation is itself a real, attributable operation a caller
+    /// may want to surface and recover from, so it is distinguished from
+    /// [`NoActiveOperation`](Self::NoActiveOperation).
+    #[error("identity is deactivated (head is a tombstone)")]
+    Deactivated,
+    /// The chain has no active operation to resolve: every operation is
+    /// nullified, so there is no surviving head and no current DID-document
+    /// state. The directory reports the DID as "not available".
+    #[error("chain has no active operation (wholly nullified)")]
     NoActiveOperation,
     /// The head operation's fields could not be projected into resolved state:
     /// an invalid `did:key`, a wrong-shaped field, or a legacy `create` missing

@@ -82,7 +82,7 @@ impl BaselineRecord {
         // Record the head the directory reports: `check`/`Baseline::audit` anchor on
         // this same reported head, so the baseline must agree with it.
         let (state, _signer) = resolver.reported().map_err(|err| match err {
-            ResolveError::NoActiveOperation => {
+            ResolveError::Deactivated | ResolveError::NoActiveOperation => {
                 CliError::ChainInvalid("identity is tombstoned or has no active operation; nothing to baseline".into())
             },
             other => CliError::ChainInvalid(format!("could not resolve head state: {other}").into()),

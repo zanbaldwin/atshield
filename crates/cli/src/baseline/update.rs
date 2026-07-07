@@ -109,7 +109,7 @@ impl BaselineUpdate {
     ) -> Result<(Baseline, bool, Vec<DidKey>, Vec<Delta>), CliError> {
         let resolver = ChainResolver::new(chain);
         let (state, _signer) = resolver.reported().map_err(|err| match err {
-            ResolveError::NoActiveOperation => {
+            ResolveError::Deactivated | ResolveError::NoActiveOperation => {
                 CliError::ChainInvalid("identity is tombstoned or has no active operation; nothing to baseline".into())
             },
             other => CliError::ChainInvalid(format!("could not resolve head state: {other}").into()),

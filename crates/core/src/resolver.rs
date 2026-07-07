@@ -20,8 +20,9 @@
 //! authority ranking alone would miss). Trusting `reported` is safe only because
 //! it is checked against `canonical`.
 //!
-//! A `plc_tombstone` head or a wholly-nullified chain has no current state along
-//! either pathway ([`ResolveError::NoActiveOperation`]).
+//! A `plc_tombstone` head has no current state along either pathway
+//! ([`ResolveError::Deactivated`]); a wholly-nullified chain likewise has none
+//! ([`ResolveError::NoActiveOperation`]).
 
 use crate::audit::{AuditLogEntry, VerifiedAuditChain};
 use crate::cid::Cid;
@@ -151,8 +152,8 @@ impl<'chain> ChainResolver<'chain> {
     /// head's signer.)
     ///
     /// # Errors
-    /// - [`ResolveError::NoActiveOperation`] if the head is a `plc_tombstone`
-    ///   (deactivated) or every operation is nullified.
+    /// - [`ResolveError::Deactivated`] if the head is a `plc_tombstone`.
+    /// - [`ResolveError::NoActiveOperation`] if every operation is nullified.
     /// - [`ResolveError::Projection`] if the head operation's fields are malformed.
     pub fn reported(&self) -> Result<(ResolvedState, DidKey), ResolveError> {
         let head = self.chain.entries().iter().rfind(|e| !e.nullified()).ok_or(ResolveError::NoActiveOperation)?;
@@ -161,7 +162,7 @@ impl<'chain> ChainResolver<'chain> {
         let operation = head.operation();
         match operation.operation_type() {
             Err(e) => Err(ResolveError::Projection(e.to_string())),
-            Ok(OperationType::Tombstone) => Err(ResolveError::NoActiveOperation),
+            Ok(OperationType::Tombstone) => Err(ResolveError::Deactivated),
             Ok(_) => Ok((ResolvedState::project(self.chain.did(), operation)?, head.signed_by().clone())),
         }
     }
@@ -187,8 +188,8 @@ impl<'chain> ChainResolver<'chain> {
     /// paired with the [`did:key`](DidKey) that signed the canonical head operation.
     ///
     /// # Errors
-    /// - [`ResolveError::NoActiveOperation`] if the canonical head is a tombstone
-    ///   or no operation survives.
+    /// - [`ResolveError::Deactivated`] if the canonical head is a `plc_tombstone`.
+    /// - [`ResolveError::NoActiveOperation`] if no operation survives.
     /// - [`ResolveError::Projection`] if the canonical head's fields are malformed.
     /// - [`ResolveError::Timestamp`] if an operation's `createdAt` is not RFC 3339.
     pub fn canonical(&self) -> Result<(ResolvedState, DidKey), ResolveError> {
@@ -249,7 +250,7 @@ impl<'chain> ChainResolver<'chain> {
         let operation = current.operation();
         match operation.operation_type() {
             Err(e) => Err(ResolveError::Projection(e.to_string())),
-            Ok(OperationType::Tombstone) => Err(ResolveError::NoActiveOperation),
+            Ok(OperationType::Tombstone) => Err(ResolveError::Deactivated),
             Ok(_) => Ok((ResolvedState::project(self.chain.did(), operation)?, current.signed_by().clone())),
         }
     }
@@ -355,11 +356,11 @@ mod tests {
     }
 
     #[test]
-    fn tombstone_chain_resolves_to_no_active_operation() {
+    fn tombstone_chain_resolves_to_deactivated() {
         // The head is a `plc_tombstone`: the identity is deactivated, so there
         // is no resolved state (the directory reports the DID as "not available").
         let chain = build_chain(crate::test::TEST_TOMBSTONE_CHAIN);
-        assert!(matches!(ChainResolver::new(&chain).reported(), Err(ResolveError::NoActiveOperation)));
+        assert!(matches!(ChainResolver::new(&chain).reported(), Err(ResolveError::Deactivated)));
     }
 
     #[test]
@@ -386,11 +387,11 @@ mod tests {
             let r = ChainResolver::new(&chain);
             assert_eq!(r.canonical().unwrap(), r.reported().unwrap());
         }
-        // The tombstone chain: both pathways agree there is no active operation.
+        // The tombstone chain: both pathways agree the identity is deactivated.
         let tomb = build_chain(crate::test::TEST_TOMBSTONE_CHAIN);
         let r = ChainResolver::new(&tomb);
-        assert!(matches!(r.canonical(), Err(ResolveError::NoActiveOperation)));
-        assert!(matches!(r.reported(), Err(ResolveError::NoActiveOperation)));
+        assert!(matches!(r.canonical(), Err(ResolveError::Deactivated)));
+        assert!(matches!(r.reported(), Err(ResolveError::Deactivated)));
     }
 
     #[test]
