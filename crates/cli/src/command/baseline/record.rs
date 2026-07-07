@@ -7,6 +7,7 @@
 
 use crate::cli::BaselineRecordArgs;
 use crate::output::{DANGER, LABEL, MUTED, WARNING, paint};
+use crate::util::{InputSource, default_path};
 use crate::{CliError, Outcome, util};
 use atshield_core::audit::VerifiedAuditChain;
 use atshield_core::delta::Baseline;
@@ -49,21 +50,22 @@ impl BaselineRecord {
         let chain = util::fetch_audit_chain(&agent, &plc_host, &args.did)?;
         let (baseline, divergent, off_chain_keys) = Self::build(&chain, args.trust_key.clone())?;
 
-        let saved_to = if args.stdout || util::is_stdio(args.file.as_deref()) {
-            None
-        } else {
-            let path = match &args.file {
-                Some(path) => path.clone(),
-                None => util::default_path(&args.did)?,
-            };
-            if path.exists() && !args.shared.force {
-                let msg = format!("baseline already exists at {}; pass --force to overwrite", path.display());
-                return Err(CliError::Usage(msg.into()));
-            }
-            let bytes = serde_json::to_vec_pretty(&baseline)
-                .map_err(|e| CliError::Software(format!("serialise: {e}").into()))?;
-            util::write_atomic(&path, &bytes)?;
-            Some(path)
+        let source = match (args.file.as_deref(), args.stdout) {
+            (None, false) => InputSource::File(default_path(&args.did)?),
+            (f, s) => InputSource::from_toggle(f, s),
+        };
+        let saved_to = match source {
+            InputSource::Stdin => None,
+            ref s @ InputSource::File(ref path) => {
+                if path.exists() && !args.shared.force {
+                    let msg = format!("baseline already exists at {}; pass --force to overwrite", path.display());
+                    return Err(CliError::Usage(msg.into()));
+                }
+                let bytes = serde_json::to_vec_pretty(&baseline)
+                    .map_err(|e| CliError::Software(format!("serialise: {e}").into()))?;
+                s.write(&bytes)?;
+                Some(path.clone())
+            },
         };
 
         Ok(Self {

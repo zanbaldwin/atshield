@@ -7,7 +7,7 @@
 
 use crate::cli::BaselineKeyArgs;
 use crate::output::{LABEL, MUTED, paint};
-use crate::util::{self, InputSource};
+use crate::util::InputSource;
 use crate::{CliError, Outcome};
 use atshield_core::delta::Baseline;
 use atshield_core::{DidExt, DidKey};
@@ -49,11 +49,11 @@ impl BaselineUntrustKey {
             InputSource::Stdin => None,
             // A no-op (the key was not trusted) leaves the file untouched.
             InputSource::File(_) if !was_trusted => None,
-            InputSource::File(path) => {
+            ref s @ InputSource::File(ref path) => {
                 let bytes = serde_json::to_vec_pretty(&baseline)
                     .map_err(|e| CliError::Software(format!("serialise: {e}").into()))?;
-                util::write_atomic(&path, &bytes)?;
-                Some(path)
+                s.write(&bytes)?;
+                Some(path.clone())
             },
         };
         Ok(Self {

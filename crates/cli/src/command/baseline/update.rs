@@ -75,16 +75,16 @@ impl BaselineUpdate {
 
         let disposition = match source {
             InputSource::Stdin => Disposition::Stdout,
-            InputSource::File(path) => {
+            ref s @ InputSource::File(ref path) => {
                 if old.state() == baseline.state() {
                     Disposition::UpToDate
                 } else if args.shared.force {
                     let bytes = serde_json::to_vec_pretty(&baseline)
                         .map_err(|e| CliError::Software(format!("serialise: {e}").into()))?;
-                    util::write_atomic(&path, &bytes)?;
-                    Disposition::Wrote(path)
+                    s.write(&bytes)?;
+                    Disposition::Wrote(path.clone())
                 } else {
-                    Disposition::DryRun(path)
+                    Disposition::DryRun(path.clone())
                 }
             },
         };

@@ -4,7 +4,8 @@ use atshield_core::delta::Baseline;
 use atshield_core::operation::Signed;
 use atshield_core::{DidExt, DidPlc, Endpoint};
 use directories::ProjectDirs;
-use std::io::{Read as _, Write as _};
+use std::fs::File;
+use std::io::{self, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use ureq::Agent;
 
@@ -48,23 +49,65 @@ pub(crate) fn is_stdio<P: AsRef<Path>>(path: Option<P>) -> bool {
     path.is_some_and(|p| p.as_ref() == Path::new("-"))
 }
 
-/// Write `bytes` to `path` atomically: a sibling temp file (fsync'd) renamed over
-/// the target, so a crash mid-write never leaves a torn baseline. Mirrors the
-/// daemon's FileStore (see `state/decisions/filestore-atomic-write.md`).
-pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), CliError> {
-    if let Some(parent) = path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        std::fs::create_dir_all(parent)?;
+/// Where the baseline was loaded from = the same place it is written back to
+/// (`Stdin` is emitted as JSON, not persisted).
+pub(crate) enum InputSource {
+    Stdin,
+    File(PathBuf),
+}
+impl InputSource {
+    pub(crate) fn from_toggle<'a, O: Into<Option<&'a Path>>>(value: O, stream: bool) -> Self {
+        match (stream, value.into()) {
+            (false, Some(p)) if p != Path::new("-") => Self::File(p.to_path_buf()),
+            _ => Self::Stdin,
+        }
     }
-    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("baseline.json");
-    // pid-suffixed so two concurrent writers don't clobber one temp.
-    let tmp = path.with_file_name(format!("{name}.{}.tmp", std::process::id()));
-    let mut file = std::fs::File::create(&tmp)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    std::fs::rename(&tmp, path)?;
-    Ok(())
+
+    pub(crate) fn read(&self) -> Result<Option<Vec<u8>>, CliError> {
+        let mut buf = Vec::new();
+        let _bytes_read = match self {
+            Self::File(p) => match File::open(p) {
+                Ok(f) => f.take(MAX_BODY_BYTES).read_to_end(&mut buf).map_err(CliError::Io),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+                Err(e) => Err(CliError::Io(e)),
+            },
+            Self::Stdin => io::stdin().take(MAX_BODY_BYTES).read_to_end(&mut buf).map_err(CliError::Io),
+        }?;
+        match self {
+            Self::Stdin if buf.is_empty() => Ok(None),
+            Self::Stdin | Self::File(_) => Ok(Some(buf)),
+        }
+    }
+
+    /// Persist `bytes` back to this source: an atomic write for a file (returning the
+    /// path written), `None` for stdin — the caller streams the document to stdout via
+    /// the JSON datum instead, keeping stdout ownership with the `Emit` sink.
+    pub(crate) fn write(&self, bytes: &[u8]) -> Result<usize, CliError> {
+        match self {
+            Self::Stdin => Ok(0), // TODO: Write to stdout?
+            Self::File(path) => {
+                use std::fs;
+                if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+                    fs::create_dir_all(parent)?;
+                }
+                let name = path.file_name().and_then(|n| n.to_str()).ok_or_else(|| {
+                    CliError::Data(format!("could not determine file name: {}", path.display()).into())
+                })?;
+                // pid-suffixed so two concurrent writers don't clobber one temp.
+                let tmp = path.with_file_name(format!("{name}.{}.tmp", std::process::id()));
+                let mut file = File::create(&tmp)?;
+                file.write_all(bytes)?;
+                file.sync_all()?;
+                fs::rename(&tmp, path)?;
+                Ok(bytes.len())
+            },
+        }
+    }
+}
+impl<'a, O: Into<Option<&'a Path>>> From<O> for InputSource {
+    fn from(value: O) -> Self {
+        Self::from_toggle(value, false)
+    }
 }
 
 /// `<data_dir>/atshield/baseline-<plc-suffix>.json` (XDG on Linux). The 24-char
@@ -76,12 +119,6 @@ pub(crate) fn default_path(did: &DidPlc) -> Result<PathBuf, CliError> {
     Ok(dirs.data_dir().join(format!("baseline-{suffix}.json")))
 }
 
-/// Where the baseline was loaded from = the same place it is written back to
-/// (`Stdin` is emitted as JSON, not persisted).
-pub(crate) enum InputSource {
-    Stdin,
-    File(PathBuf),
-}
 /// Load an existing baseline from stdin (`stream`, or a `-` path) or a file (`file` /
 /// the default path for `did`). A missing file is a usage error pointing at `baseline
 /// record`. Shared by every `baseline` subcommand that reads a baseline back in.
@@ -89,28 +126,22 @@ pub(crate) fn load_baseline(
     stream: bool,
     file: Option<&Path>,
     did: &DidPlc,
-) -> Result<(Baseline, InputSource), CliError> {
-    if stream || is_stdio(file) {
-        let mut buf = Vec::new();
-        std::io::stdin().take(MAX_BODY_BYTES).read_to_end(&mut buf)?;
-        if buf.is_empty() {
-            return Err(CliError::Data("no baseline on stdin".into()));
-        }
-        let baseline = serde_json::from_slice(&buf)
-            .map_err(|e| CliError::Data(format!("stdin is not a valid baseline: {e}").into()))?;
-        return Ok((baseline, InputSource::Stdin));
-    }
-    let path = match file {
-        Some(path) => path.to_path_buf(),
-        None => default_path(did)?,
+) -> Result<Option<(Baseline, InputSource)>, CliError> {
+    let source = match (file, stream) {
+        (None, false) => InputSource::File(default_path(did)?),
+        (f, s) => InputSource::from_toggle(f, s),
     };
-    let bytes = std::fs::read(&path).map_err(|e| match e.kind() {
-        std::io::ErrorKind::NotFound => {
-            CliError::Usage(format!("no baseline at {}; run `atshield baseline record` first", path.display()).into())
+    let Some(bytes) = source.read()? else {
+        return Ok(None);
+    };
+    let baseline = match (&source, serde_json::from_slice(&bytes)) {
+        (_, Ok(b)) => Ok(b),
+        (InputSource::Stdin, Err(e)) => {
+            Err(CliError::Data(format!("baseline streamed via stdin is not valid: {e}").into()))
         },
-        _ => CliError::Io(e),
-    })?;
-    let baseline = serde_json::from_slice(&bytes)
-        .map_err(|e| CliError::Data(format!("baseline at {} is not valid: {e}", path.display()).into()))?;
-    Ok((baseline, InputSource::File(path)))
+        (InputSource::File(p), Err(e)) => {
+            Err(CliError::Data(format!("baseline in file {} is not valid: {e}", p.display()).into()))
+        },
+    }?;
+    Ok(Some((baseline, source)))
 }
