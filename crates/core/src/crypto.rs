@@ -613,6 +613,24 @@ mod tests {
     }
 
     #[test]
+    fn private_multikey_is_bare_and_did_key_prefix_is_public_only() {
+        // The convention: private key material exports as the bare multibase
+        // (`z…`), and the `did:key:` prefix belongs exclusively to the public
+        // form.
+        // Both encodings start with `z`, so a prefixed private key is
+        // one copy-paste from being published as if it were public. I've already
+        // done this multiple times and I'm just testing locally, I need this test
+        // here to make sure I don't screw up later on like a big dum-dum.
+        use crate::did::DidExt as _;
+        let key = PrivateKey::generate();
+        let multikey = key.to_multikey();
+        assert!(!multikey.starts_with("did:key:"));
+        assert!(key.did_key().as_str().starts_with("did:key:z"));
+        // A `did:key:`-prefixed private key must not import.
+        assert!(PrivateKey::from_multikey(&format!("did:key:{}", multikey.as_str())).is_err());
+    }
+
+    #[test]
     fn from_compact_rejects_wrong_length() {
         assert!(Signature::from_compact(&[0u8; 63]).is_err());
         assert!(Signature::from_compact(&[0u8; 65]).is_err());
