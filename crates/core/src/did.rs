@@ -68,7 +68,7 @@ impl Kind {
 }
 
 /// A validated DID newtype over one method: [`Key`], [`Plc`], or [`Web`].
-pub trait DidExt: FromStr<Err = DidError> + AsRef<str> {
+pub trait DidExt: FromStr<Err = DidError> + AsRef<str> + fmt::Display {
     /// The DID method this type represents; a constant, not per-instance state.
     const KIND: Kind;
 

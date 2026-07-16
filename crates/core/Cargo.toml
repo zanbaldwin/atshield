@@ -3,6 +3,7 @@
 name = "atshield-core"
 description = "Stateless primitives for ATProto PLC: audit-log verification, classification, and proof-of-possession"
 license = "MIT OR Apache-2.0"
+publish = true
 edition.workspace = true
 version.workspace = true
 authors.workspace = true
