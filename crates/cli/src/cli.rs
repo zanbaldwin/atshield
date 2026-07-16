@@ -2,7 +2,7 @@
 //! The clap command tree: the binary's public contract. Business logic lives in
 //! `main.rs`'s dispatch; this file only declares the surface.
 
-use crate::command::handle::BareHandle;
+use atshield_core::Handle;
 use atshield_core::crypto::Signature;
 use atshield_core::{Cid, DidKey, DidPlc, Endpoint};
 use clap::{Args, ColorChoice, Parser, Subcommand};
@@ -221,7 +221,7 @@ pub struct CheckArgs {
 pub struct HandleArgs {
     /// The `@handle` to resolve (domain may or may not start with `@`)
     #[arg(value_name = "HANDLE", required = true)]
-    pub handle: BareHandle,
+    pub handle: Handle,
 
     #[command(flatten)]
     pub net: NetArgs,

@@ -16,11 +16,13 @@ mod did;
 mod encoding;
 mod endpoints;
 pub mod error;
+mod handle;
 pub mod operation;
 pub mod resolver;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test;
 
+pub use self::handle::Handle;
 pub use cid::Cid;
 pub use did::{DidExt, Key as DidKey, Kind as DidKind, Plc as DidPlc, Web as DidWeb};
 pub use endpoints::{DEFAULT_PLC_HOST, Endpoint, MAX_EXPORT_COUNT};

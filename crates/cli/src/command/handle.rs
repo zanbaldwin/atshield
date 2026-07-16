@@ -23,11 +23,10 @@ use crate::util::{MAX_BODY_BYTES, fetch_audit_chain};
 use crate::{CliError, Outcome};
 use atshield_core::error::DidError;
 use atshield_core::resolver::ChainResolver;
-use atshield_core::{DidPlc, Endpoint};
+use atshield_core::{DidPlc, Endpoint, Handle};
 use c_ares_resolver::{BlockingResolver, Options};
 use serde::Serialize;
 use std::collections::BTreeSet;
-use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::io::Read;
 use std::process::ExitCode;
 use std::str::FromStr;
@@ -46,7 +45,7 @@ pub(crate) trait HandleResolver {
     /// and returning the first that answers. Returns `Err` when no method produces
     /// a DID, when a record is ambiguous, or when the resolved value is not a
     /// supported `did:plc`.
-    fn resolve(&self, domain: &BareHandle) -> Result<ResolvedDid, CliError>;
+    fn resolve(&self, domain: &Handle) -> Result<ResolvedDid, CliError>;
 
     /// Fetch and cryptographically verify `did`'s audit chain, then assemble the
     /// full [`HandleResolution`]: the directory back-reference, the primary handle,
@@ -54,7 +53,7 @@ pub(crate) trait HandleResolver {
     /// `Err` if the chain cannot be fetched, fails verification, or its reported
     /// head cannot be resolved; a failure to derive the *canonical* head is
     /// recorded on the result instead.
-    fn verify(&self, domain: &BareHandle, did: &ResolvedDid) -> Result<HandleResolution, CliError>;
+    fn verify(&self, domain: &Handle, did: &ResolvedDid) -> Result<HandleResolution, CliError>;
 }
 
 /// The outcome of the `handle` command: a resolved DID plus the cross-checks
@@ -67,7 +66,7 @@ pub(crate) trait HandleResolver {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct HandleResolution {
     /// The queried handle, normalised (no `@`, lowercased).
-    pub handle: BareHandle,
+    pub handle: Handle,
     /// The DID it resolved to, tagged with the [`Method`] that found it.
     pub did: ResolvedDid,
     /// Whether the DID's directory record lists this handle in its `alsoKnownAs`
@@ -76,7 +75,7 @@ pub(crate) struct HandleResolution {
     /// The account's primary handle (the first `alsoKnownAs` entry), when one
     /// is published and parses. The rendered output only remarks on it when it
     /// differs from [`handle`](Self::handle).
-    pub aka_primary: Option<BareHandle>,
+    pub aka_primary: Option<Handle>,
     /// `true` when the directory's reported state diverges from the canonical
     /// state atshield re-derives from the chain, i.e. a possible tamper inside
     /// the 72-hour window. Always `false` while
@@ -248,87 +247,6 @@ pub(crate) struct ResolvedDid {
     pub method: Method,
 }
 
-/// A syntactically valid ATProto handle (a domain name), held in bare normalised
-/// form: no leading `@`, lowercased, no trailing dot. [`Display`] and [`Serialize`]
-/// re-add the `@` to match the directory's `@handle` shape, so reach for
-/// [`domain`](Self::domain) when you want the bare string. Construct via [`FromStr`];
-/// [`validate`](Self::validate) defines the accepted syntax.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct BareHandle(String);
-impl BareHandle {
-    /// The bare domain form (no `@`, lowercased); the inverse of the `@`-prefixed
-    /// [`Display`] output.
-    pub(crate) fn domain(&self) -> &str {
-        &self.0
-    }
-
-    /// Check `domain` against the subset of ATProto handle syntax atshield accepts:
-    /// a domain of two or more LDH labels (ASCII letters, digits, hyphens), each
-    /// label 1-63 bytes with no leading or trailing hyphen, total length 1-253 bytes,
-    /// and a top-level label that starts with a letter (which rejects bare IPs
-    /// and numeric TLDs). Returns [`CliError::Usage`] naming the first rule that
-    /// fails.
-    pub(crate) fn validate(domain: impl AsRef<str>) -> Result<(), CliError> {
-        let reject = |msg: String| Err(CliError::Usage(format!("invalid handle: {msg}").into()));
-        let domain = domain.as_ref();
-        if domain.is_empty() || domain.len() > 253 {
-            return reject(format!("handle length out of range: `{domain}`"));
-        }
-        let labels: Vec<&str> = domain.split('.').collect();
-        if labels.len() < 2 {
-            return reject(format!("handle must be a domain with at least two labels: `{domain}`"));
-        }
-        for label in &labels {
-            let bytes = label.as_bytes();
-            if bytes.is_empty() || bytes.len() > 63 {
-                return reject(format!("invalid label length in `{domain}`"));
-            }
-            if bytes.first() == Some(&b'-') || bytes.last() == Some(&b'-') {
-                return reject(format!("label has a leading/trailing hyphen in `{domain}`"));
-            }
-            if !bytes.iter().all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'-')) {
-                return reject(format!("invalid characters in handle `{domain}`"));
-            }
-        }
-        // The top-level label must start with a letter (rejects IPs and numeric TLDs).
-        let tld_ok = labels.last().and_then(|t| t.as_bytes().first()).is_some_and(u8::is_ascii_lowercase);
-        if !tld_ok {
-            return reject(format!("top-level label must start with a letter: `{domain}`"));
-        }
-        Ok(())
-    }
-}
-impl Serialize for BareHandle {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        // The wire form keeps the `@` prefix (the `Display` form), matching the
-        // directory's `@handle` shape, whereas the str ref does not contain the
-        // `@` prefix.
-        #[allow(clippy::unnecessary_to_owned)]
-        serializer.serialize_str(&self.to_string())
-    }
-}
-impl Display for BareHandle {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "@{}", self.0)
-    }
-}
-impl FromStr for BareHandle {
-    type Err = CliError;
-    /// Strip an *optional* leading `@`, lowercase, strip a trailing dot, then validate
-    /// the domain syntax. The stored value is the bare handle (no `@`).
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let s = s.strip_prefix('@').unwrap_or(s);
-        let s = s.strip_suffix('.').unwrap_or(s).to_lowercase();
-        Self::validate(&s)?;
-        Ok(Self(s))
-    }
-}
-impl AsRef<str> for BareHandle {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
-
 /// The production [`HandleResolver`]: a blocking HTTP [`Agent`] plus the two
 /// endpoints it needs, the PLC directory (`plc_host`) for audit chains and the
 /// XRPC AppView (`resolver_host`) for the `resolveHandle` fallback.
@@ -347,7 +265,7 @@ impl SystemResolver {
     /// authoritative answer (NXDOMAIN/NODATA/SERVFAIL, or no `did=` record), so
     /// the caller falls through to the next method; two distinct `did=` values
     /// are an ambiguity reported as [`CliError::Unavailable`].
-    fn dns_txt(&self, bare: &BareHandle) -> Result<Option<DidPlc>, CliError> {
+    fn dns_txt(&self, bare: &Handle) -> Result<Option<DidPlc>, CliError> {
         let name = format!("_atproto.{}", bare.domain());
         // NXDOMAIN / NODATA / SERVFAIL -> no authoritative answer here, fall through.
         let Ok(results) = self.dns.query_txt(&name) else {
@@ -377,7 +295,7 @@ impl SystemResolver {
     /// Resolve via `https://<handle>/.well-known/atproto-did`. A transport error
     /// or a non-2xx response counts as "not here" (`Ok(None)`); the body read is
     /// capped at 512 bytes since a DID is tiny.
-    fn well_known(&self, bare: &BareHandle) -> Result<Option<DidPlc>, CliError> {
+    fn well_known(&self, bare: &Handle) -> Result<Option<DidPlc>, CliError> {
         let url = format!("https://{}/.well-known/atproto-did", bare.domain());
         let Ok(resp) = self.agent.get(&url).call() else {
             return Ok(None);
@@ -396,7 +314,7 @@ impl SystemResolver {
     /// configured AppView, the last-resort fallback. A failed request is `Ok(None)`,
     /// as is a valid JSON response without a `did` field; only a malformed body
     /// is a [`CliError::Unavailable`].
-    fn xrpc(&self, bare: &BareHandle) -> Result<Option<DidPlc>, CliError> {
+    fn xrpc(&self, bare: &Handle) -> Result<Option<DidPlc>, CliError> {
         let url = format!("{}/xrpc/com.atproto.identity.resolveHandle", self.resolver_host);
         let Ok(resp) = self.agent.get(&url).query("handle", bare.domain()).call() else {
             return Ok(None);
@@ -425,7 +343,7 @@ impl SystemResolver {
 }
 
 impl HandleResolver for SystemResolver {
-    fn resolve(&self, bare: &BareHandle) -> Result<ResolvedDid, CliError> {
+    fn resolve(&self, bare: &Handle) -> Result<ResolvedDid, CliError> {
         if let Some(did) = self.dns_txt(bare)? {
             return Ok(ResolvedDid { did, method: Method::Dns });
         }
@@ -441,7 +359,7 @@ impl HandleResolver for SystemResolver {
         Err(CliError::Unavailable(msg.into()))
     }
 
-    fn verify(&self, bare: &BareHandle, resolution: &ResolvedDid) -> Result<HandleResolution, CliError> {
+    fn verify(&self, bare: &Handle, resolution: &ResolvedDid) -> Result<HandleResolution, CliError> {
         // Fetch and cryptographically verify the whole chain, never trust `/data`.
         // Any failure propagates so `run` can record it on the result as `error`.
         let chain = fetch_audit_chain(&self.agent, &self.plc_host, &resolution.did)?;
@@ -454,7 +372,7 @@ impl HandleResolver for SystemResolver {
             .also_known_as()
             .first()
             .and_then(|handle| handle.trim().strip_prefix("at://"))
-            .map(BareHandle::from_str)
+            .map(Handle::from_str)
             .transpose()
             .ok()
             .flatten();
@@ -498,41 +416,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_normalises_and_optional_at() {
-        // The `@` is optional now (the old crate required it); a trailing dot and
-        // mixed case are both folded away.
-        assert_eq!("alice.bsky.social".parse::<BareHandle>().unwrap().domain(), "alice.bsky.social");
-        assert_eq!("@Alice.BSKY.social.".parse::<BareHandle>().unwrap().domain(), "alice.bsky.social");
-        assert_eq!("@zanbaldwin.com".parse::<BareHandle>().unwrap().domain(), "zanbaldwin.com");
-    }
-
-    #[test]
-    fn parse_rejects_junk_and_ips() {
-        let rejects = |s: &str| s.parse::<BareHandle>();
-        assert!(matches!(rejects("@nodot"), Err(CliError::Usage(_))));
-        assert!(matches!(rejects("nodot"), Err(CliError::Usage(_))));
-        assert!(matches!(rejects("1.2.3.4"), Err(CliError::Usage(_))));
-        assert!(matches!(rejects("@1.2.3.4"), Err(CliError::Usage(_))));
-        assert!(matches!(rejects("@-bad.example"), Err(CliError::Usage(_))));
-        assert!(matches!(rejects("a_b.example"), Err(CliError::Usage(_))));
-    }
-
-    #[test]
-    fn method_serialises_snake_case() {
-        assert_eq!(serde_json::to_string(&Method::Dns).unwrap(), "\"dns\"");
-        assert_eq!(serde_json::to_string(&Method::WellKnown).unwrap(), "\"well_known\"");
-        assert_eq!(serde_json::to_string(&Method::Xrpc).unwrap(), "\"xrpc\"");
-        assert!(!Method::Dns.label().is_empty());
-    }
-
-    #[test]
-    fn display_and_serialize_prefix_at() {
-        let handle: BareHandle = "alice.bsky.social".parse().unwrap();
-        assert_eq!(handle.to_string(), "@alice.bsky.social");
-        assert_eq!(serde_json::to_string(&handle).unwrap(), "\"@alice.bsky.social\"");
-    }
-
-    #[test]
     fn resolution_serialises_and_exits_success() {
         let resolved = resolution(false);
         assert!(matches!(resolved.exit_code(), ExitCode::SUCCESS));
@@ -541,7 +424,7 @@ mod tests {
         assert_eq!(
             value,
             serde_json::json!({
-                "handle": "@zanbaldwin.com",
+                "handle": "zanbaldwin.com",
                 "did": { "did": TEST_DID_PLC, "method": "dns" },
                 "directory_verified": true,
                 "aka_primary": null,
@@ -552,6 +435,14 @@ mod tests {
         // The machine datum carries the bare DID for piping into `--did`.
         assert_eq!(resolved.datum().as_deref(), Some(TEST_DID_PLC));
         assert!(rendered(&resolved).contains(TEST_DID_PLC));
+    }
+
+    #[test]
+    fn method_serialises_snake_case() {
+        assert_eq!(serde_json::to_string(&Method::Dns).unwrap(), "\"dns\"");
+        assert_eq!(serde_json::to_string(&Method::WellKnown).unwrap(), "\"well_known\"");
+        assert_eq!(serde_json::to_string(&Method::Xrpc).unwrap(), "\"xrpc\"");
+        assert!(!Method::Dns.label().is_empty());
     }
 
     #[test]
