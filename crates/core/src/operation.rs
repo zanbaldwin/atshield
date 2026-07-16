@@ -458,7 +458,7 @@ impl Operation<Unsigned> {
     /// # Errors
     /// - [`VerifyError::Encode`] if the signing input cannot be encoded.
     /// - [`VerifyError::SignatureInvalid`] if `sig` does not verify against `key`.
-    pub fn sign_with(self, key: &PublicKey, sig: &Signature) -> Result<Operation<Checked>, VerifyError> {
+    pub fn signed_with(self, key: &PublicKey, sig: &Signature) -> Result<Operation<Checked>, VerifyError> {
         self.add_signature(sig).verify(key)
     }
 }
@@ -789,12 +789,12 @@ mod tests {
         let unsigned = Operation::<Unsigned>::from_value(unsigned_op()).unwrap();
         // Sign the operation's signing input off to the side, then attach + verify.
         let sig = key.sign(&crate::encoding::signing_input(unsigned.value()).unwrap()).unwrap();
-        assert_eq!(unsigned.sign_with(&pubkey, &sig).unwrap().signed_by(), &pubkey);
+        assert_eq!(unsigned.signed_with(&pubkey, &sig).unwrap().signed_by(), &pubkey);
 
         // The same signature under a different key is rejected.
         let other = PrivateKey::generate().did_key();
         let unsigned = Operation::<Unsigned>::from_value(unsigned_op()).unwrap();
-        assert!(matches!(unsigned.sign_with(&other, &sig), Err(VerifyError::SignatureInvalid)));
+        assert!(matches!(unsigned.signed_with(&other, &sig), Err(VerifyError::SignatureInvalid)));
     }
 
     #[test]
