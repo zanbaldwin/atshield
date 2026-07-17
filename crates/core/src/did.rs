@@ -42,6 +42,7 @@ use crate::de_via_fromstr;
 use crate::error::DidError;
 use serde::Serialize;
 use serde::de::{Deserialize, Deserializer};
+use std::borrow::Cow;
 use std::fmt;
 use std::str::FromStr;
 
@@ -164,7 +165,7 @@ const DID_PLC_LEN: usize = 24;
 /// keeps it safe to use verbatim as a filename component (no `/`, no `..`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 #[serde(transparent)]
-pub struct Plc(String);
+pub struct Plc(Cow<'static, str>);
 impl Plc {
     /// Validate `value` as a `did:plc` identifier and wrap it.
     ///
@@ -187,14 +188,38 @@ impl Plc {
         if !body.bytes().all(|b| matches!(b, b'a'..=b'z' | b'2'..=b'7')) {
             return Err(DidError::Invalid(Self::KIND, format!("body must be base32 lowercase [a-z2-7], got `{body}`")));
         }
-        Ok(Self(s))
+        Ok(Self(Cow::Owned(s)))
+    }
+
+    /// Wrap a `did:plc` literal, applying the same syntactic checks as [`Plc::new`]
+    /// in `const` context. An invalid literal used to initialise a constant is
+    /// a compile error, so a `const Plc` is always valid.
+    ///
+    /// # Panics
+    /// If `value` is not a syntactically valid `did:plc` (at compile time when
+    /// used in a constant).
+    #[must_use]
+    pub const fn from_static(value: &'static str) -> Self {
+        let mut prefix = Self::KIND.prefix().as_bytes();
+        let mut bytes = value.as_bytes();
+        assert!(bytes.len() == prefix.len() + DID_PLC_LEN, "a did:plc is `did:plc:` plus a 24-character body");
+        while let ([expected, prefix_rest @ ..], [byte, rest @ ..]) = (prefix, bytes) {
+            assert!(*byte == *expected, "a did:plc starts with `did:plc:`");
+            prefix = prefix_rest;
+            bytes = rest;
+        }
+        while let [byte, rest @ ..] = bytes {
+            assert!(matches!(*byte, b'a'..=b'z' | b'2'..=b'7'), "a did:plc body is base32 lowercase [a-z2-7]");
+            bytes = rest;
+        }
+        Self(Cow::Borrowed(value))
     }
 
     /// Wrap without validation. Used only where re-parsing is provably pointless.
     #[cfg(test)]
     #[must_use]
     pub(crate) fn unchecked(value: impl Into<String>) -> Self {
-        Self(value.into())
+        Self(Cow::Owned(value.into()))
     }
 }
 impl AsRef<str> for Plc {
@@ -441,6 +466,20 @@ mod tests {
         ] {
             assert!(matches!(Plc::new(bad), Err(DidError::Invalid { .. })), "{bad} should be InvalidPlc");
         }
+    }
+
+    #[test]
+    fn plc_from_static_is_const_and_indistinguishable_from_new() {
+        const ID: Plc = Plc::from_static(PLC);
+        assert_eq!(ID, Plc::new(PLC).unwrap());
+        assert_eq!(ID.value(), "ewvi7nxzyoun6zhxrhs64oiz");
+        assert_eq!(serde_json::to_string(&ID).unwrap(), format!("\"{PLC}\""));
+    }
+
+    #[test]
+    #[should_panic(expected = "24-character body")]
+    fn plc_from_static_panics_on_malformed_input() {
+        _ = Plc::from_static("did:plc:tooshort");
     }
 
     #[test]

@@ -626,7 +626,7 @@ mod tests {
         let multikey = key.to_multikey();
         assert!(!multikey.starts_with("did:key:"));
         assert!(key.did_key().as_str().starts_with("did:key:z"));
-        // A `did:key:`-prefixed private key must not import.
+        // A did:key:-prefixed private key must not import.
         assert!(PrivateKey::from_multikey(&format!("did:key:{}", multikey.as_str())).is_err());
     }
 
