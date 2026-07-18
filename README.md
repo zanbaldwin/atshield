@@ -9,16 +9,21 @@ Control of a `did:plc` record belongs to whoever holds its rotation keys, and th
 window to undo an operation you didn't authorise. `atshield` watches that window for you, because nobody reads their own
 PLC audit log for fun.
 
-This repository is a Cargo workspace. Each crate carries its own README with details.
+> The verification recomputes every CID from canonical DAG-CBOR, re-checks every ECDSA signature (secp256k1/P-256,
+> strict low-S), re-derives the DID from genesis bytes, and is validated against the official protocol interop vectors.
 
 ## The published crates
-Both are dual-licensed `MIT` or `Apache-2.0`.
+This repository is a Cargo workspace. Each crate carries its own README with details.
 
 - **[`atshield-core`](crates/core)** is the engine: stateless, transport-free `did:plc` primitives that verify an audit
   log, resolve its current state two independent ways, classify changes against a baseline, and sign proof-of-possession
   challenges. No I/O, no state, no key custody. Start here if you want a library to build on.
 - **[`atshield-cli`](crates/cli)** is the `atshield` command: the tool that fetches the bytes, keeps a baseline on disk,
   resolves handles, and renders the verdict. Start here if you want something to run.
+
+```shell
+cargo install atshield-cli
+```
 
 ## The sandbox
 **[`fakesky-edge`](crates/edge)** is an edge proxy (built on [Pingora](https://github.com/cloudflare/pingora)) that
