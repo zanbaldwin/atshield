@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: LicenseRef-Proprietary
 //! Pingora runtime of the Fakesky sandbox edge.
 //!
 //! A thin shell mapping the transport-free rules in this crate's library onto

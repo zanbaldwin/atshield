@@ -1,7 +1,6 @@
 [package]
 name = "fakesky-edge"
 description = "Edge proxy for Fakesky: PLC directory / app sandbox"
-license = "LicenseRef-Proprietary"
 publish = false
 version.workspace = true
 edition.workspace = true

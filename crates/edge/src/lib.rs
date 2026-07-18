@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: LicenseRef-Proprietary
 //! Stateless filter rules for the Fakesky sandbox edge.
 //!
 //! This is the abuse boundary in front of the vanilla `did-method-plc` reference

@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: LicenseRef-Proprietary
 FROM 'rust:1-alpine' AS build
 RUN apk add --no-cache --virtual '.build-deps' \
     'cmake' \
