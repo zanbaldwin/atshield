@@ -2,6 +2,8 @@
 [package]
 name = "atshield-cli"
 description = "Command-line client for atshield did:plc identity-tampering detection"
+keywords = ["atproto", "bluesky", "did-plc", "identity", "cli"]
+categories = ["command-line-utilities", "cryptography", "authentication", "network-programming"]
 license = "MIT OR Apache-2.0"
 publish = true
 edition.workspace = true

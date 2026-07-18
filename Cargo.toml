@@ -4,7 +4,7 @@ members = ["crates/*"]
 
 [workspace.package]
 edition = "2024"
-version = "0.0.0"
+version = "0.1.0"
 authors = ["Zan Baldwin <hello@zanbaldwin.com>"]
 repository = "https://github.com/zanbaldwin/atshield"
 rust-version = "1.96"
@@ -14,7 +14,7 @@ anstyle = "^1"
 anstream = "^1"
 async-trait = "=0.1.89"
 atrium-crypto = "=0.1.3"
-atshield-core = { path = "crates/core" }
+atshield-core = { path = "crates/core", version = "0.1.0" }
 base64 = "=0.22.1"
 bytes = "1"
 c-ares-resolver = { version = "^11.0.0", default-features = false }

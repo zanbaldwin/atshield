@@ -2,6 +2,8 @@
 [package]
 name = "atshield-core"
 description = "Stateless primitives for ATProto PLC: audit-log verification, classification, and proof-of-possession"
+keywords = ["atproto", "bluesky", "did-plc", "identity", "verification"]
+categories = ["cryptography", "authentication", "parsing", "encoding"]
 license = "MIT OR Apache-2.0"
 publish = true
 edition.workspace = true
