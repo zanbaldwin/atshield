@@ -1,0 +1,112 @@
+name: 'CI'
+
+on:
+    push:
+        branches: ['main']
+    pull_request: {}
+    workflow_dispatch: {}
+
+jobs:
+    rust:
+        runs-on: 'ubuntu'
+        container:
+            image: 'git.lan.zanbaldwin.com/actions/runner-images:rust'
+        env:
+            SQLX_OFFLINE: 'true'
+            CARGO_TERM_COLOR: 'always'
+            # Dated pin so the nightly rustfmt is cacheable ("nightly" moves
+            # daily and would re-download on every run); bump as needed.
+            RUST_NIGHTLY: 'nightly-2026-07-27'
+        steps:
+            - name: 'Checkout'
+              uses: 'https://code.forgejo.org/actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
+            - name: 'Restore Rust toolchains'
+              id: 'toolchains'
+              uses: 'https://github.com/actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9'
+              with:
+                  path: |
+                      /usr/local/rustup/toolchains
+                      /usr/local/rustup/update-hashes
+                  key: toolchains-${{ env.RUST_NIGHTLY }}-${{ hashFiles('rust-toolchain.toml') }}
+            - name: 'Install toolchains'
+              run: |
+                  rustup toolchain install
+                  rustup toolchain install "${RUST_NIGHTLY}" --profile minimal --component rustfmt
+                  rustup show
+            - name: 'Save Rust toolchains'
+              if: ${{ steps.toolchains.outputs.cache-hit != 'true' }}
+              uses: 'https://github.com/actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9'
+              with:
+                  path: |
+                      /usr/local/rustup/toolchains
+                      /usr/local/rustup/update-hashes
+                  key: toolchains-${{ env.RUST_NIGHTLY }}-${{ hashFiles('rust-toolchain.toml') }}
+            - name: 'Restore cargo dependencies'
+              id: 'deps'
+              uses: 'https://github.com/actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9'
+              with:
+                  path: '/usr/local/cargo/registry'
+                  key: deps-${{ hashFiles('Cargo.lock') }}
+            - name: 'Fetch dependencies'
+              run: 'cargo fetch --locked'
+            - name: 'Save cargo dependencies'
+              if: ${{ steps.deps.outputs.cache-hit != 'true' }}
+              uses: 'https://github.com/actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9'
+              with:
+                  path: '/usr/local/cargo/registry'
+                  key: deps-${{ hashFiles('Cargo.lock') }}
+            # Compiled build output; only saved by the post-run step of green
+            # runs, so treat it as a best-effort accelerator.
+            - name: 'Restore build cache'
+              uses: 'https://github.com/actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9'
+              with:
+                  path: 'target'
+                  key: build-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+                  restore-keys: 'build-'
+            - name: 'Format'
+              run: 'cargo "+${RUST_NIGHTLY}" fmt --all -- --check'
+            - name: 'Build'
+              run: 'cargo build --workspace --all-targets'
+            - name: 'Test'
+              run: 'cargo test --workspace'
+            - name: 'Clippy'
+              run: 'cargo clippy --workspace --all-targets -- -D warnings'
+            - name: 'Docs'
+              run: 'cargo doc --workspace --no-deps'
+
+    markdown:
+        runs-on: 'ubuntu'
+        env:
+            RUMDL_VERSION: '0.2.44'
+        steps:
+            - name: 'Checkout'
+              uses: 'https://code.forgejo.org/actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
+            # rumdl ships prebuilt release binaries; download one into a
+            # versioned dir on PATH and cache it.
+            - name: 'Prepare rumdl dir'
+              id: 'rumdl'
+              run: |
+                  set -euo pipefail
+                  dir="${RUNNER_TEMP:-/tmp}/rumdl/${RUMDL_VERSION}"
+                  mkdir -p "$dir"
+                  echo "dir=$dir" >> "$GITHUB_OUTPUT"
+                  echo "$dir" >> "$GITHUB_PATH"
+            - name: 'Restore cached rumdl'
+              id: 'cache'
+              uses: 'https://github.com/actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9'
+              with:
+                  path: ${{ steps.rumdl.outputs.dir }}
+                  key: 'rumdl-${{ env.RUMDL_VERSION }}-x86_64-unknown-linux-musl'
+            - name: 'Download rumdl'
+              if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+              env:
+                  DIR: ${{ steps.rumdl.outputs.dir }}
+                  ARCH: 'x86_64'
+              run: |
+                  set -euo pipefail
+                  URL="https://github.com/rvben/rumdl/releases/download/v${RUMDL_VERSION}/rumdl-v${RUMDL_VERSION}-${ARCH}-unknown-linux-musl.tar.gz"
+                  curl --proto '=https' --tlsv1.3 -fsSL "${URL}" | tar -xz -C "${DIR}"
+            - name: 'Lint markdown'
+              run: |
+                  rumdl --version
+                  rumdl check .
