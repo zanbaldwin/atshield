@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Stateless filter rules for the Fakesky sandbox edge.
 //!
 //! This is the abuse boundary in front of the vanilla `did-method-plc` reference
@@ -88,7 +89,7 @@ pub fn route(method: &str, path: &str) -> PlcRoute {
     }
     let tail: Vec<&str> = segments.collect();
     match (method, tail.as_slice()) {
-        ("GET", [] | ["log" | "data"] | ["log", "audit"] | &["_health"]) => PlcRoute::AllowedGet,
+        ("GET", [] | ["log" | "data"] | ["log", "audit"]) => PlcRoute::AllowedGet,
         ("POST", []) => PlcRoute::GuardedPost,
         _ => PlcRoute::AppPassthru,
     }

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
 FROM 'rust:1-alpine' AS build
 RUN apk add --no-cache --virtual '.build-deps' \
     'cmake' \
