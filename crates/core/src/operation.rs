@@ -244,7 +244,7 @@ impl<S: State> Operation<S> {
                     .get("signingKey")
                     .and_then(Value::as_str)
                     .ok_or_else(|| OperationError::Malformed("legacy `create` missing `signingKey`".to_owned()))?;
-                let key = PublicKey::new(signing)
+                let key = PublicKey::any_type(signing)
                     .map_err(|e| OperationError::Malformed(format!("invalid `signingKey`: {e}")))?;
                 Ok(BTreeMap::from([("atproto".to_owned(), key)]))
             },
@@ -256,7 +256,7 @@ impl<S: State> Operation<S> {
                         let s = v.as_str().ok_or_else(|| {
                             OperationError::Malformed(format!("`verificationMethods[{id}]` is not a string"))
                         })?;
-                        let key = PublicKey::new(s).map_err(|e| {
+                        let key = PublicKey::any_type(s).map_err(|e| {
                             OperationError::Malformed(format!("invalid `verificationMethods[{id}]`: {e}"))
                         })?;
                         Ok((id.clone(), key))

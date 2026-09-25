@@ -20,7 +20,8 @@
 //!
 //! - [`Key`] accepts the two PLC curves (secp256k1 `did:key:zQ3s…`, P-256
 //!   `did:key:zDn…`) via `atrium_crypto::did::parse_did_key`, the same parser
-//!   the chain verifier uses.
+//!   the chain verifier uses. Signing keys (`verificationMethods`) are the
+//!   exception: any base58btc `did:key`, per PLC spec v0.2.
 //! - [`Plc`] is the canonical `did:plc` parser (24-char base32-lowercase `[a-z2-7]`
 //!   body).
 //! - [`Web`] validates a `did:web` domain offline (no DNS) against the ATProto
@@ -43,6 +44,7 @@ use crate::error::DidError;
 use serde::Serialize;
 use serde::de::{Deserialize, Deserializer};
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::str::FromStr;
 
@@ -95,8 +97,10 @@ pub trait DidExt: FromStr<Err = DidError> + AsRef<str> + fmt::Display {
     }
 }
 
-/// A validated `did:key`: the rotation and signing keys on a PLC operation. Accepts
-/// only the two PLC curves, secp256k1 (`did:key:zQ3s…`) and P-256 (`did:key:zDn…`).
+/// A validated `did:key`: the rotation and signing keys on a PLC operation. Constructing
+/// one accepts only the two PLC curves, secp256k1 (`did:key:zQ3s…`) and P-256
+/// (`did:key:zDn…`). A signing key read from an operation (`verificationMethods`)
+/// may be any key type, as PLC spec v0.2 allows.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 #[serde(transparent)]
 pub struct Key(String);
@@ -116,6 +120,39 @@ impl Key {
     pub(crate) fn unchecked(value: impl Into<String>) -> Self {
         Self(value.into())
     }
+
+    /// Validate `value` as a `did:key` of any key type, the rule for
+    /// `verificationMethods` since PLC spec v0.2: a `did:key:z` prefix and a
+    /// base58btc body, matching the reference directory. Rotation keys stay on
+    /// [`new`](Self::new)'s two-curve rule; a key of another type never passes
+    /// [`verify`](Self::verify).
+    ///
+    /// # Errors
+    /// - [`DidError::Invalid`] for a missing prefix or a non-base58btc body.
+    pub(crate) fn any_type(value: impl Into<String>) -> Result<Self, DidError> {
+        let s = value.into();
+        let body = s.strip_prefix(Kind::Key.prefix()).and_then(|multikey| multikey.strip_prefix('z'));
+        match body.map(|b58| multibase::Base::Base58Btc.decode(b58)) {
+            Some(Ok(_)) => Ok(Self(s)),
+            _ => Err(DidError::Invalid(Kind::Key, format!("not a base58btc did:key: {s}"))),
+        }
+    }
+}
+
+/// Deserialise one `did:key` under the any-key-type rule ([`Key::any_type`]).
+pub(crate) fn de_any_key_type<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Key, D::Error> {
+    Key::any_type(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+}
+
+/// Deserialise a `verificationMethods` map under the any-key-type rule
+/// ([`Key::any_type`]).
+pub(crate) fn de_any_key_type_map<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<BTreeMap<String, Key>, D::Error> {
+    BTreeMap::<String, String>::deserialize(deserializer)?
+        .into_iter()
+        .map(|(id, key)| Key::any_type(key).map(|key| (id, key)).map_err(serde::de::Error::custom))
+        .collect()
 }
 impl AsRef<str> for Key {
     fn as_ref(&self) -> &str {
@@ -428,6 +465,25 @@ mod tests {
     fn key_deserialise_validates() {
         assert!(serde_json::from_str::<Key>(&format!("\"{SECP}\"")).is_ok());
         assert!(serde_json::from_str::<Key>("\"did:key:zUserOne\"").is_err());
+    }
+
+    // The did:key spec's Ed25519 example: a legal signing key since PLC spec v0.2,
+    // never a rotation key.
+    const ED25519: &str = "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK";
+
+    #[test]
+    fn any_type_accepts_other_key_types_that_new_rejects() {
+        assert!(Key::new(ED25519).is_err());
+        assert_eq!(Key::any_type(ED25519).unwrap().as_str(), ED25519);
+        assert_eq!(Key::any_type(SECP).unwrap().as_str(), SECP);
+    }
+
+    #[test]
+    fn any_type_rejects_non_base58btc_did_keys() {
+        assert!(Key::any_type("did:key:zUserOne").is_err()); // `O` is outside base58
+        assert!(Key::any_type("did:key:mAAAA").is_err()); // base64, not base58btc
+        assert!(Key::any_type("did:web:example.test").is_err());
+        assert!(Key::any_type("z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK").is_err());
     }
 
     #[test]

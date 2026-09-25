@@ -51,6 +51,7 @@ pub struct ResolvedState {
     cid: Cid,
     /// The verification methods (key id → `did:key`), e.g. `atproto` → signing
     /// key.
+    #[serde(deserialize_with = "crate::did::de_any_key_type_map")]
     verification_methods: BTreeMap<String, DidKey>,
     /// The rotation keys in authority order (highest authority first).
     rotation_keys: Vec<DidKey>,
@@ -427,5 +428,40 @@ mod tests {
         raw[3]["createdAt"] = serde_json::json!("2026-01-10T00:00:00.000Z");
         let chain = build_chain(&serde_json::to_string(&raw).unwrap());
         assert!(!ChainResolver::new(&chain).is_agreeable());
+    }
+
+    #[test]
+    fn resolves_and_round_trips_a_non_plc_curve_signing_key() {
+        // PLC spec v0.2: a signing key may be any did:key type (here Ed25519),
+        // while rotation keys stay on the two PLC curves.
+        use crate::did::DidExt;
+        const ED25519: &str = "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK";
+        let rotation = crate::crypto::PrivateKey::generate();
+        let genesis = Operation::<crate::operation::Unsigned>::from_value(serde_json::json!({
+            "type": "plc_operation",
+            "prev": null,
+            "rotationKeys": [rotation.did_key().as_str()],
+            "verificationMethods": { "atproto": ED25519 },
+            "alsoKnownAs": ["at://alice.example"],
+            "services": { "atproto_pds": { "type": "AtprotoPersonalDataServer", "endpoint": "https://pds.example" } },
+        }))
+        .unwrap()
+        .sign(&rotation)
+        .unwrap();
+        let entry: AuditLogEntry<Signed> = serde_json::from_value(serde_json::json!({
+            "operation": genesis.value(),
+            "cid": genesis.cid().unwrap().to_string(),
+            "nullified": false,
+            "createdAt": "2026-09-25T00:00:00.000Z",
+        }))
+        .unwrap();
+        let chain = VerifiedAuditChain::genesis(entry).unwrap();
+
+        let (resolved, _signer) = ChainResolver::new(&chain).reported().unwrap();
+        assert_eq!(resolved.verification_methods().get("atproto").map(DidKey::as_str), Some(ED25519));
+
+        let baseline = crate::delta::Baseline::new(resolved, vec![rotation.did_key()]);
+        let json = serde_json::to_value(&baseline).unwrap();
+        assert_eq!(serde_json::from_value::<crate::delta::Baseline>(json).unwrap(), baseline);
     }
 }

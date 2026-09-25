@@ -65,8 +65,10 @@ pub enum Delta {
     /// `verificationMethods["atproto"]` changed.
     SigningKeyChanged {
         /// Baseline signing key.
+        #[serde(deserialize_with = "crate::did::de_any_key_type")]
         from: DidKey,
         /// Observed signing key.
+        #[serde(deserialize_with = "crate::did::de_any_key_type")]
         to: DidKey,
     },
     /// `services["atproto_pds"].endpoint` changed.
