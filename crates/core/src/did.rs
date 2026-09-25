@@ -111,7 +111,7 @@ impl Key {
     /// - [`DidError::Invalid`] for a malformed string or an unsupported curve.
     pub fn new(value: impl Into<String>) -> Result<Self, DidError> {
         let s = value.into();
-        atrium_crypto::did::parse_did_key(&s).map_err(|e| DidError::Invalid(Self::KIND, e.to_string()))?;
+        crate::crypto::parse_did_key(&s).map_err(|e| DidError::Invalid(Self::KIND, e.to_string()))?;
         Ok(Self(s))
     }
 
@@ -453,6 +453,18 @@ mod tests {
         assert!(Key::new("did:web:example.test").is_err());
         assert!(Key::new("did:key:zUserOne").is_err()); // synthetic, not a real key
         assert!(Key::new("").is_err());
+        // Bodies shorter than the 2-byte multicodec prefix (atrium would panic).
+        assert!(Key::new("did:key:z").is_err());
+        assert!(Key::new("did:key:z2").is_err());
+    }
+
+    #[test]
+    fn short_any_type_key_never_verifies() {
+        let key = Key::any_type("did:key:z2").unwrap();
+        let sig: crate::crypto::Signature =
+            "2ppmbUjV_duwAOaAhBDgoUv3WHDubty5TFFDKcuKK8oST_0SsVRTrfVz39LNwbItZEc_FkKvr0kh6MihE2xyiQ".parse().unwrap();
+        assert!(!key.verify(&sig, b"msg"));
+        assert_eq!(key.normalise(&sig), sig);
     }
 
     #[test]

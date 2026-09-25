@@ -38,7 +38,6 @@ pub use super::did::Key as PublicKey;
 use crate::error::NonceError;
 use crate::error::{SignError, VerifyError};
 use atrium_crypto::Algorithm;
-use atrium_crypto::did::parse_did_key;
 use atrium_crypto::verify::Verifier;
 use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
@@ -48,6 +47,17 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::ops::Deref;
 use std::str::FromStr;
 use zeroize::Zeroizing;
+
+/// [`atrium_crypto::did::parse_did_key`] without its panic: atrium slices the
+/// 2-byte multicodec prefix unchecked, so a body shorter than that (`did:key:z2`)
+/// is rejected here first.
+pub(crate) fn parse_did_key(did: &str) -> atrium_crypto::Result<(Algorithm, Vec<u8>)> {
+    let decoded = did.strip_prefix("did:key:").and_then(|multikey| multibase::decode(multikey).ok());
+    if decoded.is_some_and(|(_, bytes)| bytes.len() < 2) {
+        return Err(atrium_crypto::Error::UnsupportedMultikeyType);
+    }
+    atrium_crypto::did::parse_did_key(did)
+}
 
 /// The fixed nonce prefix.
 pub const NONCE_PREFIX: &str = "INVALID:";
